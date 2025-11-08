@@ -26,7 +26,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import pearsonr
-import pandas as pd
 from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
@@ -331,48 +330,9 @@ def create_visualizations(results, output_dir):
     plt.close()
 
 def save_results(results, output_dir):
+    """Print results summary (no file output)"""
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Save detailed results as JSON
-    with open(os.path.join(output_dir, 'manifold_alignment_results.json'), 'w') as f:
-        def convert_numpy(obj):
-            """Recursively convert numpy types to Python native types for JSON serialization"""
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, (np.float64, np.float32, np.float16)):
-                return float(obj)
-            elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
-                return int(obj)
-            elif isinstance(obj, (np.bool_, bool)):
-                return bool(obj)
-            elif isinstance(obj, dict):
-                return {key: convert_numpy(value) for key, value in obj.items()}
-            elif isinstance(obj, (list, tuple)):
-                return [convert_numpy(item) for item in obj]
-            return obj
-        
-        # Convert all results to JSON-serializable format
-        json_results = convert_numpy(results)
-        
-        json.dump(json_results, f, indent=2)
-    
-    # Save summary table as CSV
-    summary_data = []
-    for model_name, model_results in results.items():
-        for layer_name, layer_results in model_results.items():
-            if layer_results is not None:
-                summary_data.append({
-                    'model': model_name,
-                    'layer': layer_name,
-                    'cosine_similarity': layer_results['cosine_similarity']['mean_corresponding_similarity'],
-                    'rsa_correlation': layer_results['rsa']['rsa_correlation'],
-                    'n_samples': layer_results['n_samples']
-                })
-    
-    df = pd.DataFrame(summary_data)
-    df.to_csv(os.path.join(output_dir, 'manifold_alignment_summary.csv'), index=False)
-    
-    print(f"Results saved to {output_dir}")
+    print(f"Results directory: {output_dir}")
 
 def main():
     # Configuration - update paths to match your setup

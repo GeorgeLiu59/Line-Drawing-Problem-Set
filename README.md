@@ -11,7 +11,7 @@ Analysis of ResNet-18 models trained on color photographs vs. line drawings to u
 Install dependencies:
 
 ```bash
-pip install torch torchvision numpy scipy scikit-learn matplotlib seaborn pandas pillow tqdm
+pip install torch torchvision numpy scipy scikit-learn matplotlib seaborn pillow tqdm
 ```
 
 ## Project Structure
@@ -22,12 +22,19 @@ Line-Drawing-Problem-Set/
 ├── rsa_analysis.py           # Representation alignment analysis (cosine similarity, RSA)
 ├── correlation_matrices.py  # Correlation matrix comparison and visualization
 ├── accuracy.py               # Model accuracy evaluation
-└── Models/                  # Trained ResNet-18 checkpoints
-    ├── resnet18_color.pth
-    ├── resnet18_line.pth
-    ├── resnet18_linecolor.pth
-    ├── resnet18_colorline.pth
-    └── resnet18_interleaved.pth
+├── Models/                  # Trained ResNet-18 checkpoints
+│   ├── resnet18_color.pth
+│   ├── resnet18_line.pth
+│   ├── resnet18_linecolor.pth
+│   ├── resnet18_colorline.pth
+│   └── resnet18_interleaved.pth
+└── Results/                 # Analysis outputs
+    ├── correlation_matrices_results/
+    │   ├── domain_comparison_matrices_layer1.png
+    │   ├── domain_comparison_matrices_layer2.png
+    │   ├── domain_comparison_matrices_layer3.png
+    │   └── domain_comparison_matrices_layer4.png
+    └── rsa_analysis_results.out
 ```
 
 ## Models
@@ -63,7 +70,7 @@ These layers are extracted after the initial conv1, bn1, relu, and maxpool layer
 python rsa_analysis.py
 ```
 
-**Output:** JSON results, CSV summary, and visualization plots.
+**Output:** Results printed to console and saved to output log.
 
 ### `correlation_matrices.py`
 Compares models using correlation matrices to visualize same-domain vs cross-domain patterns across ResNet-18 residual blocks (layer1-4). Uses 100 images per class.
@@ -72,7 +79,15 @@ Compares models using correlation matrices to visualize same-domain vs cross-dom
 python correlation_matrices.py
 ```
 
-**Output:** Correlation matrix visualizations (same-domain vs cross-domain for all 5 models).
+**Output:**
+- `domain_comparison_matrices_layer{1-4}.png`: 2x5 grid visualizations showing same-domain (top row) vs cross-domain (bottom row) correlation matrices for all 5 models at each layer
+
+## Results
+
+Analysis outputs are saved in the `Results/` directory:
+
+- **`correlation_matrices_results/`**: Contains correlation matrix visualizations (one PNG per layer)
+- **`rsa_analysis_results.out`**: Output log from RSA analysis script
 
 ## Data Requirements
 
