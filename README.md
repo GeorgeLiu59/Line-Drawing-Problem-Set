@@ -1,4 +1,4 @@
-# Computational Perception 15-387 HW5
+# Computational Perception HW5 Code & Results
 
 Code for HW5 of 15-387 for Fall 2025.
 
