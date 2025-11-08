@@ -1,39 +1,31 @@
 #!/usr/bin/env python3
 """
-Model Comparison Analysis: resnet18_stl10.pth vs resnet18_linecolor.pth
+Model Comparison Analysis for ResNet-18 Models
 
-This script compares two ResNet-18 models using Representational Similarity Analysis (RSA):
-1. Whether the manifold structure is preserved between models
-2. If there's more of a translation vs structural change
-3. RSA correlation analysis to determine if correlation matrices are 90%+ correlated
+This script compares ResNet-18 models using correlation matrices:
+- Creates same-domain and cross-domain correlation matrices
+- Visualizes correlation patterns across different training strategies
 
-Models:
-- resnet18_stl10.pth: Color-only trained model
-- resnet18_linecolor.pth: Line→Color transfer learning model
+Models analyzed:
+- Color Only, Line Only, Line→Color, Color→Line, Interleaved
 
 Analysis:
 - Uses 100 images per class (1000 total images)
 - Creates correlation matrices (-1 to 1) using correlation coefficients
-- Creates both full (1000x1000) and class-averaged (10x10) correlation matrices
-- Calculates Pearson and Spearman correlations between matrices
-- Visualizes results to understand manifold structure preservation
+- Visualizes same-domain vs cross-domain correlation patterns
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models, transforms
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from PIL import Image
 import json
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.spatial.distance import pdist, squareform
-from scipy.stats import pearsonr
-from sklearn.decomposition import PCA
-import pandas as pd
 from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
@@ -196,36 +188,6 @@ def create_representational_similarity_matrix(features):
     
     return correlation_matrix
 
-def create_class_averaged_correlation_matrix(features, labels):
-    """Create 10x10 class-averaged correlation matrix (-1 to 1)"""
-    n_classes = 10
-    class_averaged_matrix = np.zeros((n_classes, n_classes))
-    
-    # Convert to numpy if needed
-    if isinstance(features, torch.Tensor):
-        features = features.numpy()
-    
-    for i in range(n_classes):
-        for j in range(n_classes):
-            # Get indices for classes i and j
-            class_i_indices = np.where(labels == i)[0]
-            class_j_indices = np.where(labels == j)[0]
-            
-            # Calculate average correlation coefficient between all pairs of images from class i and class j
-            correlations = []
-            for idx_i in class_i_indices:
-                for idx_j in class_j_indices:
-                    # Calculate correlation coefficient
-                    corr_coef = np.corrcoef(features[idx_i], features[idx_j])[0, 1]
-                    # Handle NaN case (when features are identical)
-                    if np.isnan(corr_coef):
-                        corr_coef = 1.0  # Identical features have correlation 1
-                    correlations.append(corr_coef)
-            
-            class_averaged_matrix[i, j] = np.mean(correlations)
-    
-    return class_averaged_matrix
-
 def create_cross_domain_correlation_matrix(color_features, line_features):
     """Create cross-domain correlation matrix (Color vs Line)"""
     # Convert to numpy if needed
@@ -244,44 +206,6 @@ def create_cross_domain_correlation_matrix(color_features, line_features):
     cross_domain_matrix = cross_domain_matrix[:n_color, n_color:]
     
     return cross_domain_matrix
-
-def analyze_correlation_matrix_correlation(matrix1, matrix2, model1_name, model2_name):
-    """Analyze correlation between two correlation matrices"""
-    # Flatten upper triangular matrices (excluding diagonal)
-    n = matrix1.shape[0]
-    triu_indices = np.triu_indices(n, k=1)
-    
-    matrix1_flat = matrix1[triu_indices]
-    matrix2_flat = matrix2[triu_indices]
-    
-    # Calculate Pearson correlation (RSA standard)
-    correlation, p_value = pearsonr(matrix1_flat, matrix2_flat)
-    
-    # Calculate mean absolute difference
-    mean_abs_diff = np.mean(np.abs(matrix1_flat - matrix2_flat))
-    
-    # Calculate Spearman correlation (alternative RSA metric)
-    from scipy.stats import spearmanr
-    spearman_corr, spearman_p = spearmanr(matrix1_flat, matrix2_flat)
-    
-    # Calculate structural similarity for correlation matrices
-    c1, c2 = 0.01, 0.03  # Constants for SSIM
-    mu1, mu2 = np.mean(matrix1), np.mean(matrix2)
-    sigma1, sigma2 = np.std(matrix1), np.std(matrix2)
-    sigma12 = np.mean((matrix1 - mu1) * (matrix2 - mu2))
-    
-    ssim = ((2 * mu1 * mu2 + c1) * (2 * sigma12 + c2)) / ((mu1**2 + mu2**2 + c1) * (sigma1**2 + sigma2**2 + c2))
-    
-    return {
-        'pearson_correlation': correlation,
-        'pearson_p_value': p_value,
-        'spearman_correlation': spearman_corr,
-        'spearman_p_value': spearman_p,
-        'mean_abs_diff': mean_abs_diff,
-        'structural_similarity': ssim,
-        'is_90_percent_correlated': correlation >= 0.9
-    }
-
 
 def create_domain_comparison_visualization(same_domain_matrices, cross_domain_matrices, model_names, layer_name, output_dir):
     """Create 2x5 grid showing Same Domain vs Cross Domain correlation matrices for all 5 models"""
@@ -324,16 +248,24 @@ def create_domain_comparison_visualization(same_domain_matrices, cross_domain_ma
 
 def main():
     """Main function to run model comparison analysis"""
+    # Configuration - update paths to match your setup
+    MODELS_DIR = 'Models'
+    LINE_IMAGES_DIR = 'STL10-Line/test_images'
+    LINE_JSON_FILE = 'STL10-Line/test.json'
+    COLOR_IMAGES_DIR = 'STL10/test_images'
+    COLOR_JSON_FILE = 'STL10/test.json'
+    OUTPUT_DIR = 'model_comparison_results'
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     # Model paths
     model_paths = {
-        'Color Only': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_color.pth',
-        'Line Only': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_line.pth',
-        'Line→Color': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_linecolor.pth',
-        'Color→Line': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_colorline.pth',
-        'Interleaved': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_interleaved.pth'
+        'Color Only': os.path.join(MODELS_DIR, 'resnet18_color.pth'),
+        'Line Only': os.path.join(MODELS_DIR, 'resnet18_line.pth'),
+        'Line→Color': os.path.join(MODELS_DIR, 'resnet18_linecolor.pth'),
+        'Color→Line': os.path.join(MODELS_DIR, 'resnet18_colorline.pth'),
+        'Interleaved': os.path.join(MODELS_DIR, 'resnet18_interleaved.pth')
     }
     
     # Check if models exist
@@ -347,15 +279,15 @@ def main():
     
     # Load color images dataset
     color_dataset = STL10Dataset(
-        img_dir='/user_data/georgeli/workspace/STL10-Resnet-18/STL10/test_images',
-        json_file='/user_data/georgeli/workspace/STL10-Resnet-18/STL10/test.json',
+        img_dir=COLOR_IMAGES_DIR,
+        json_file=COLOR_JSON_FILE,
         transform=transform
     )
     
     # Load line images dataset
     line_dataset = STL10Dataset(
-        img_dir='/user_data/georgeli/workspace/STL10-Resnet-18/STL10-Line/test_images',
-        json_file='/user_data/georgeli/workspace/STL10-Resnet-18/STL10-Line/test.json',
+        img_dir=LINE_IMAGES_DIR,
+        json_file=LINE_JSON_FILE,
         transform=transform
     )
     
@@ -374,10 +306,7 @@ def main():
     layer_names = ['layer1', 'layer2', 'layer3', 'layer4']
     
     # Create output directory
-    output_dir = '/user_data/georgeli/workspace/STL10-Resnet-18/manifold_alignment/model_comparison_results'
-    os.makedirs(output_dir, exist_ok=True)
-    
-    results = {}
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     print(f"\nStarting model comparison analysis...")
     print(f"Models: {list(model_paths.keys())}")
@@ -445,113 +374,18 @@ def main():
             # Create 2x5 grid visualization: Same Domain vs Cross Domain for all 5 models
             print("  Creating 2x5 grid visualization (Same Domain vs Cross Domain)...")
             create_domain_comparison_visualization(
-                same_domain_matrices, cross_domain_matrices, list(model_paths.keys()), layer_name, output_dir
+                same_domain_matrices, cross_domain_matrices, list(model_paths.keys()), layer_name, OUTPUT_DIR
             )
             
         except Exception as e:
             print(f"  Error analyzing layer {layer_name}: {str(e)}")
     
-    # Save results
-    print(f"\nSaving results...")
-    
-    # Save correlation summary
-    summary_data = []
-    for layer_name, layer_results in results.items():
-        if layer_results is not None:
-            corr_analysis = layer_results['correlation_analysis']
-            summary_data.append({
-                'layer': layer_name,
-                'pearson_correlation': corr_analysis['pearson_correlation'],
-                'spearman_correlation': corr_analysis['spearman_correlation'],
-                'pearson_p_value': corr_analysis['pearson_p_value'],
-                'spearman_p_value': corr_analysis['spearman_p_value'],
-                'mean_abs_diff': corr_analysis['mean_abs_diff'],
-                'structural_similarity': corr_analysis['structural_similarity'],
-                'is_90_percent_correlated': corr_analysis['is_90_percent_correlated']
-            })
-    
-    df = pd.DataFrame(summary_data)
-    df.to_csv(os.path.join(output_dir, 'correlation_summary.csv'), index=False)
-    
-    # Save detailed results as JSON
-    def convert_numpy(obj):
-        """Convert numpy types to Python native types for JSON serialization"""
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, (np.float64, np.float32, np.float16)):
-            return float(obj)
-        elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
-            return int(obj)
-        elif isinstance(obj, (np.bool_, bool)):
-            return bool(obj)
-        elif isinstance(obj, dict):
-            return {key: convert_numpy(value) for key, value in obj.items()}
-        elif isinstance(obj, (list, tuple)):
-            return [convert_numpy(item) for item in obj]
-        return obj
-    
-    # Save only correlation analysis (not the full matrices)
-    json_results = {}
-    for layer_name, layer_results in results.items():
-        if layer_results is not None:
-            json_results[layer_name] = {
-                'correlation_analysis': convert_numpy(layer_results['correlation_analysis']),
-                'n_samples': len(layer_results['labels']),
-                'feature_dim': layer_results['features1'].shape[1]
-            }
-    
-    with open(os.path.join(output_dir, 'model_comparison_results.json'), 'w') as f:
-        json.dump(json_results, f, indent=2)
-    
-    # Print final summary
     print("\n" + "="*80)
-    print("MODEL COMPARISON ANALYSIS RESULTS")
+    print("MODEL COMPARISON ANALYSIS COMPLETE")
     print("="*80)
     print(f"Models compared: {list(model_paths.keys())}")
     print(f"Images analyzed: {len(selected_indices)} (100 per class)")
-    print()
-    
-    print(f"{'Layer':<12} {'Pearson RSA':<12} {'Spearman RSA':<12} {'90%+ Corr':<12} {'Mean Diff':<12}")
-    print("-" * 70)
-    
-    manifold_preserved_layers = 0
-    total_layers = 0
-    
-    for layer_name, layer_results in results.items():
-        if layer_results is not None:
-            corr_analysis = layer_results['correlation_analysis']
-            pearson_corr = corr_analysis['pearson_correlation']
-            spearman_corr = corr_analysis['spearman_correlation']
-            is_90_percent = corr_analysis['is_90_percent_correlated']
-            mean_diff = corr_analysis['mean_abs_diff']
-            
-            print(f"{layer_name:<12} {pearson_corr:<12.3f} {spearman_corr:<12.3f} {str(is_90_percent):<12} {mean_diff:<12.3f}")
-            
-            total_layers += 1
-            if is_90_percent:
-                manifold_preserved_layers += 1
-    
-    print("\n" + "="*80)
-    print("KEY FINDINGS")
-    print("="*80)
-    
-    if total_layers > 0:
-        preservation_rate = manifold_preserved_layers / total_layers
-        print(f"Manifold structure preservation rate: {preservation_rate:.1%} ({manifold_preserved_layers}/{total_layers} layers)")
-        
-        if preservation_rate >= 0.75:
-            print("CONCLUSION: Manifold structure is WELL PRESERVED between models")
-            print("The models learn similar structural representations, suggesting")
-            print("the transfer learning maintains the underlying manifold geometry.")
-        elif preservation_rate >= 0.5:
-            print("CONCLUSION: Manifold structure is PARTIALLY PRESERVED")
-            print("Some layers maintain structure while others show more translation.")
-        else:
-            print("CONCLUSION: Manifold structure is NOT WELL PRESERVED")
-            print("The models learn significantly different representations,")
-            print("suggesting more of a translation than structural preservation.")
-    
-    print(f"\nResults saved to: {output_dir}")
+    print(f"\nResults saved to: {OUTPUT_DIR}")
     print("Visualizations created:")
     for layer_name in layer_names:
         print(f"  - domain_comparison_matrices_{layer_name}.png (2x5 grid: Same Domain vs Cross Domain for all 5 models)")

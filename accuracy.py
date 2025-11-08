@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+Model Accuracy Evaluation
+
+Evaluates ResNet-18 models on test sets.
+"""
+
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -7,22 +14,18 @@ import json
 import os
 from tqdm import tqdm
 
-# Configuration - just put your model paths here
+# Configuration - update paths to match your setup
+MODELS_DIR = 'Models'
+TEST_JSON_PATH = 'STL10-Line/test.json'
+TEST_IMAGES_DIR = 'STL10-Line'
+
 MODEL_PATHS = [
-    '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_stl10.pth',
-    '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_stl10_line.pth',
-    '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_colorline.pth',
-    '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_linecolor.pth',
-    '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_interleaved.pth'
+    os.path.join(MODELS_DIR, 'resnet18_color.pth'),
+    os.path.join(MODELS_DIR, 'resnet18_line.pth'),
+    os.path.join(MODELS_DIR, 'resnet18_colorline.pth'),
+    os.path.join(MODELS_DIR, 'resnet18_linecolor.pth'),
+    os.path.join(MODELS_DIR, 'resnet18_interleaved.pth')
 ]
-
-# Photograph Data
-# TEST_JSON_PATH = '/lab_data/leelab/georgeli/datasets/STL10/test.json'
-# TEST_IMAGES_DIR = '/lab_data/leelab/georgeli/datasets/STL10'
-
-# Line Drawing Data
-TEST_JSON_PATH = '/user_data/georgeli/workspace/STL10-Resnet-18/STL10-Line/test.json'
-TEST_IMAGES_DIR = '/user_data/georgeli/workspace/STL10-Resnet-18/STL10-Line'
 
 
 def create_model():

@@ -1,41 +1,31 @@
 #!/usr/bin/env python3
 """
-Complete Manifold Alignment Analysis for ResNet18 Models
+Manifold Alignment Analysis for ResNet18 Models
 
-This script implements all the analysis methods requested:
+This script implements:
 1. Cosine similarity between line and color representations
-2. Representational Similarity Analysis (RSA) 
-3. Procrustes analysis for manifold alignment
-4. Analysis across different training strategies and network layers
-
-Research Questions Addressed:
-- Does training with color first create a less structural prior?
-- Does combined training enhance alignment but favor the line manifold?
-- Can we establish this through latent representation analysis?
+2. Representational Similarity Analysis (RSA) using RDM
+3. Analysis across different training strategies and network layers
 
 Models Analyzed:
-- Color Only (resnet18_stl10.pth)
-- Line Only (resnet18_stl10_line.pth) 
+- Color Only (resnet18_color.pth)
+- Line Only (resnet18_line.pth) 
 - Line → Color (resnet18_linecolor.pth)
 - Color → Line (resnet18_colorline.pth)
-- Combined (resnet18_learntodraw.pth)
+- Interleaved (resnet18_interleaved.pth)
 """
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torchvision import models, transforms
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from PIL import Image
 import json
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.spatial.distance import pdist, squareform
 from scipy.stats import pearsonr
-from scipy.linalg import orthogonal_procrustes
-from sklearn.decomposition import PCA
 import pandas as pd
 from tqdm import tqdm
 import warnings
@@ -119,32 +109,6 @@ def get_transform():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-def extract_features(model, dataloader, layer_name, device, max_samples=10):
-    feature_extractor = FeatureExtractor(model, layer_name)
-    feature_extractor.to(device)
-    feature_extractor.eval()
-    
-    features = []
-    labels = []
-    filenames = []
-    
-    with torch.no_grad():
-        for i, (images, batch_labels, batch_filenames) in enumerate(tqdm(dataloader, desc=f"Extracting {layer_name}")):
-            if len(features) >= max_samples:
-                break
-                
-            images = images.to(device)
-            _ = feature_extractor(images)
-            
-            layer_features = feature_extractor.features[layer_name]
-            layer_features = layer_features.view(layer_features.size(0), -1)
-            
-            features.append(layer_features.cpu().numpy())
-            labels.extend(batch_labels.numpy())
-            filenames.extend(batch_filenames)
-    
-    return np.vstack(features), np.array(labels), filenames
-
 def extract_corresponding_features(model, line_dataset, color_dataset, layer_name, device, max_samples=10):
     feature_extractor = FeatureExtractor(model, layer_name)
     feature_extractor.to(device)
@@ -205,8 +169,7 @@ def extract_corresponding_features(model, line_dataset, color_dataset, layer_nam
             np.array(labels), filenames)
 
 def cosine_similarity_analysis(line_features, color_features):
-    import numpy as np
-    
+    """Compute cosine similarity between corresponding line and color features"""
     if isinstance(line_features, torch.Tensor):
         line_features = line_features.numpy()
     if isinstance(color_features, torch.Tensor):
@@ -224,17 +187,21 @@ def cosine_similarity_analysis(line_features, color_features):
     
     mean_corresponding_similarity = np.mean(corresponding_similarities)
     
-    if 'torch' in globals():
-        torch.cuda.empty_cache()
-    
     return {
         'mean_corresponding_similarity': mean_corresponding_similarity
     }
 
-def representational_similarity_analysis(line_features, color_features, verbose=False, layer_name=None, model_name=None):
-    import numpy as np
-    from scipy.stats import pearsonr, spearmanr
+def representational_similarity_analysis(line_features, color_features):
+    """
+    Compute Representational Similarity Analysis (RSA) using RDM.
     
+    Args:
+        line_features: numpy array of shape (n_samples, n_features) for line images
+        color_features: numpy array of shape (n_samples, n_features) for color images
+    
+    Returns:
+        dict with 'rsa_correlation' and 'rsa_p_value'
+    """
     # Ensure features are numpy arrays and properly shaped
     if isinstance(line_features, torch.Tensor):
         line_features = line_features.cpu().numpy()
@@ -259,41 +226,7 @@ def representational_similarity_analysis(line_features, color_features, verbose=
     
     n_samples = len(line_features)
     
-    # DIAGNOSTIC 1: Check if corresponding features are identical (would indicate bug)
-    identical_pairs = 0
-    min_diff = float('inf')
-    max_diff = 0
-    mean_diff = 0
-    
-    for i in range(n_samples):
-        diff = np.linalg.norm(line_features[i] - color_features[i])
-        mean_diff += diff
-        if diff < min_diff:
-            min_diff = diff
-        if diff > max_diff:
-            max_diff = diff
-        if diff < 1e-10:  # Essentially identical
-            identical_pairs += 1
-    
-    mean_diff /= n_samples
-    
-    # DIAGNOSTIC 2: Check feature statistics
-    line_feat_mean = np.mean(line_features)
-    line_feat_std = np.std(line_features)
-    color_feat_mean = np.mean(color_features)
-    color_feat_std = np.std(color_features)
-    
-    # DIAGNOSTIC 3: Compute cosine similarity between corresponding features
-    corresponding_cos_sims = []
-    for i in range(n_samples):
-        line_norm = line_features[i] / (np.linalg.norm(line_features[i]) + 1e-10)
-        color_norm = color_features[i] / (np.linalg.norm(color_features[i]) + 1e-10)
-        cos_sim = np.dot(line_norm, color_norm)
-        corresponding_cos_sims.append(cos_sim)
-    mean_corresponding_cos_sim = np.mean(corresponding_cos_sims)
-    
-    # Standard RSA: Compute full RDM (Representational Dissimilarity Matrix) then extract upper triangular
-    # RDM is n x n matrix where RDM[i,j] = distance between samples i and j
+    # Compute RDM (Representational Dissimilarity Matrix)
     def compute_rdm(features):
         """Compute Representational Dissimilarity Matrix"""
         n = len(features)
@@ -315,46 +248,6 @@ def representational_similarity_analysis(line_features, color_features, verbose=
     line_distances = line_rdm[triu_indices]
     color_distances = color_rdm[triu_indices]
     
-    # DIAGNOSTIC: Verify pair correspondence for layer3 or verbose mode
-    pair_verifications = []
-    if verbose or layer_name == 'layer3':
-        # Verify a few pairs manually to ensure RDM computation is correct
-        check_pairs = [(0, 1), (0, 2), (1, 2)] if n_samples >= 3 else []
-        for i, j in check_pairs:
-            line_manual = np.linalg.norm(line_features[i] - line_features[j])
-            color_manual = np.linalg.norm(color_features[i] - color_features[j])
-            line_from_rdm = line_rdm[i, j]
-            color_from_rdm = color_rdm[i, j]
-            
-            # Find index in upper triangular array
-            idx_in_triu = np.where((triu_indices[0] == i) & (triu_indices[1] == j))[0]
-            if len(idx_in_triu) > 0:
-                all_match = (np.abs(line_manual - line_from_rdm) < 1e-6 and
-                            np.abs(color_manual - color_from_rdm) < 1e-6 and
-                            np.abs(line_from_rdm - line_distances[idx_in_triu[0]]) < 1e-6 and
-                            np.abs(color_from_rdm - color_distances[idx_in_triu[0]]) < 1e-6)
-                pair_verifications.append({
-                    'pair': (i, j),
-                    'line_manual': line_manual,
-                    'line_rdm': line_from_rdm,
-                    'line_triu': line_distances[idx_in_triu[0]],
-                    'color_manual': color_manual,
-                    'color_rdm': color_from_rdm,
-                    'color_triu': color_distances[idx_in_triu[0]],
-                    'all_match': all_match
-                })
-    
-    # DIAGNOSTIC 4: Distance statistics
-    line_dist_mean = np.mean(line_distances)
-    line_dist_std = np.std(line_distances)
-    line_dist_min = np.min(line_distances)
-    line_dist_max = np.max(line_distances)
-    
-    color_dist_mean = np.mean(color_distances)
-    color_dist_std = np.std(color_distances)
-    color_dist_min = np.min(color_distances)
-    color_dist_max = np.max(color_distances)
-    
     # Check for constant distance vectors (would make correlation undefined)
     line_var = np.var(line_distances)
     color_var = np.var(color_distances)
@@ -367,153 +260,15 @@ def representational_similarity_analysis(line_features, color_features, verbose=
         }
     
     # Use Pearson correlation as the standard RSA metric
-    # If there are ties or outliers, Spearman might be more robust, but Pearson is standard for RSA
-    try:
-        correlation, p_value = pearsonr(line_distances, color_distances)
-    except ValueError:
-        # Fallback to Spearman if Pearson fails (e.g., due to constant values)
-        correlation, p_value = spearmanr(line_distances, color_distances)
+    correlation, p_value = pearsonr(line_distances, color_distances)
     
     # Check for invalid correlation values
     if np.isnan(correlation) or np.isinf(correlation):
-        # Try Spearman as fallback
-        correlation, p_value = spearmanr(line_distances, color_distances)
-        if np.isnan(correlation) or np.isinf(correlation):
-            raise ValueError(f"Invalid correlation computed: {correlation}")
-    
-    # Print diagnostics if verbose or if suspicious values detected
-    if verbose or (layer_name == 'layer3' and correlation > 0.6) or identical_pairs > 0:
-        print(f"\n  [RSA DIAGNOSTICS] {model_name} - {layer_name}")
-        print(f"    Feature shapes: line={line_features.shape}, color={color_features.shape}")
-        print(f"    Corresponding features check:")
-        print(f"      - Identical pairs: {identical_pairs}/{n_samples}")
-        print(f"      - L2 diff: min={min_diff:.6f}, max={max_diff:.6f}, mean={mean_diff:.6f}")
-        print(f"      - Mean cosine sim (corresponding): {mean_corresponding_cos_sim:.4f}")
-        print(f"    Feature statistics:")
-        print(f"      - Line: mean={line_feat_mean:.6f}, std={line_feat_std:.6f}")
-        print(f"      - Color: mean={color_feat_mean:.6f}, std={color_feat_std:.6f}")
-        print(f"    Distance statistics:")
-        print(f"      - Line distances: mean={line_dist_mean:.6f}, std={line_dist_std:.6f}, "
-              f"min={line_dist_min:.6f}, max={line_dist_max:.6f}")
-        print(f"      - Color distances: mean={color_dist_mean:.6f}, std={color_dist_std:.6f}, "
-              f"min={color_dist_min:.6f}, max={color_dist_max:.6f}")
-        print(f"      - Distance variances: line_var={line_var:.6f}, color_var={color_var:.6f}")
-        if pair_verifications:
-            print(f"    Pair verification (RDM correctness check):")
-            for pv in pair_verifications:
-                status = "✓" if pv['all_match'] else "✗"
-                print(f"      {status} Pair {pv['pair']}: line={pv['line_triu']:.4f}, color={pv['color_triu']:.4f}")
-        print(f"    RSA result: correlation={correlation:.4f}, p_value={p_value:.6f}")
+        raise ValueError(f"Invalid correlation computed: {correlation}")
     
     return {
         'rsa_correlation': correlation,
         'rsa_p_value': p_value
-    }
-
-def procrustes_analysis(line_features, color_features, layer_name=None):
-    """
-    Memory-efficient Procrustes analysis using PCA dimensionality reduction.
-    Reduces features to manageable dimensions before applying Procrustes.
-    """
-    import numpy as np
-    from scipy.linalg import orthogonal_procrustes
-    from sklearn.decomposition import PCA
-    
-    if isinstance(line_features, torch.Tensor):
-        line_features = line_features.numpy()
-    if isinstance(color_features, torch.Tensor):
-        color_features = color_features.numpy()
-    
-    # Determine target dimensionality (use smaller of: n_samples-1, 50, or original dims)
-    n_samples = min(len(line_features), len(color_features))
-    target_dims = min(n_samples - 1, 50, line_features.shape[1], color_features.shape[1])
-    
-    # Apply PCA to reduce dimensionality for memory efficiency
-    pca = PCA(n_components=target_dims)
-    
-    # Fit PCA on combined data to ensure same transformation
-    combined_features = np.vstack([line_features, color_features])
-    pca.fit(combined_features)
-    
-    # Transform both feature sets
-    line_reduced = pca.transform(line_features)
-    color_reduced = pca.transform(color_features)
-    
-    # Center the reduced feature matrices
-    line_centered = line_reduced - line_reduced.mean(axis=0)
-    color_centered = color_reduced - color_reduced.mean(axis=0)
-    
-    # Find optimal rotation matrix using Procrustes analysis
-    R, scale = orthogonal_procrustes(line_centered, color_centered)
-    
-    # Calculate rotation angle from rotation matrix
-    trace_R = np.trace(R)
-    n_dims = R.shape[0]
-    
-    # Handle different dimensionality cases
-    if n_dims == 2:
-        cos_angle = trace_R / 2.0
-    else:
-        cos_angle = (trace_R - 1) / (n_dims - 1)
-    
-    # Ensure valid range for arccos
-    cos_angle = np.clip(cos_angle, -1, 1)
-    rotation_angle_rad = np.arccos(cos_angle)
-    rotation_angle_deg = np.degrees(rotation_angle_rad)
-    
-    # Calculate alignment quality
-    line_aligned = line_centered @ R * scale
-    alignment_error = np.mean(np.linalg.norm(line_aligned - color_centered, axis=1))
-    
-    # Clean up memory
-    del line_reduced, color_reduced, line_centered, color_centered, combined_features
-    if 'torch' in globals():
-        torch.cuda.empty_cache()
-    
-    return {
-        'rotation_angle': rotation_angle_deg,
-        'scale_factor': scale,
-        'alignment_error': alignment_error,
-        'pca_components': target_dims,
-        'explained_variance_ratio': pca.explained_variance_ratio_.sum()
-    }
-
-def analyze_structural_vs_color_prior(line_features, color_features):
-    import numpy as np
-    from sklearn.decomposition import PCA
-    
-    def cosine_similarity_pair(a, b):
-        a_norm = a / np.linalg.norm(a)
-        b_norm = b / np.linalg.norm(b)
-        return np.dot(a_norm, b_norm)
-    
-    diagonal_similarities = []
-    for i in range(len(line_features)):
-        sim = cosine_similarity_pair(line_features[i], color_features[i])
-        diagonal_similarities.append(sim)
-    
-    diagonal_similarities = np.array(diagonal_similarities)
-    
-    line_variance = np.var(line_features, axis=0).mean()
-    color_variance = np.var(color_features, axis=0).mean()
-    
-    line_pca = PCA(n_components=min(10, line_features.shape[1]))
-    color_pca = PCA(n_components=min(10, color_features.shape[1]))
-    
-    line_pca.fit(line_features)
-    color_pca.fit(color_features)
-    
-    line_explained_var = line_pca.explained_variance_ratio_.sum()
-    color_explained_var = color_pca.explained_variance_ratio_.sum()
-    
-    return {
-        'mean_cosine_similarity': diagonal_similarities.mean(),
-        'line_variance': line_variance,
-        'color_variance': color_variance,
-        'variance_ratio': line_variance / color_variance,
-        'line_pca_explained_var': line_explained_var,
-        'color_pca_explained_var': color_explained_var,
-        'similarity_std': diagonal_similarities.std()
     }
 
 def create_visualizations(results, output_dir):
@@ -620,15 +375,23 @@ def save_results(results, output_dir):
     print(f"Results saved to {output_dir}")
 
 def main():
+    # Configuration - update paths to match your setup
+    MODELS_DIR = 'Models'
+    LINE_IMAGES_DIR = 'STL10-Line/test_images'
+    LINE_JSON_FILE = 'STL10-Line/test.json'
+    COLOR_IMAGES_DIR = 'STL10/test_images'
+    COLOR_JSON_FILE = 'STL10/test.json'
+    OUTPUT_DIR = 'results'
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     model_paths = {
-        'Color Only': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_color.pth',
-        'Line Only': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_line.pth',
-        'Line → Color': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_linecolor.pth',
-        'Color → Line': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_colorline.pth',
-        'Interleaved': '/user_data/georgeli/workspace/STL10-Resnet-18/Models/resnet18_interleaved.pth'
+        'Color Only': os.path.join(MODELS_DIR, 'resnet18_color.pth'),
+        'Line Only': os.path.join(MODELS_DIR, 'resnet18_line.pth'),
+        'Line → Color': os.path.join(MODELS_DIR, 'resnet18_linecolor.pth'),
+        'Color → Line': os.path.join(MODELS_DIR, 'resnet18_colorline.pth'),
+        'Interleaved': os.path.join(MODELS_DIR, 'resnet18_interleaved.pth')
     }
     
     layer_names = ['layer1', 'layer2', 'layer3', 'layer4']
@@ -636,14 +399,14 @@ def main():
     transform = get_transform()
     
     line_dataset = STL10Dataset(
-        img_dir='/user_data/georgeli/workspace/STL10-Resnet-18/STL10-Line/test_images',
-        json_file='/user_data/georgeli/workspace/STL10-Resnet-18/STL10-Line/test.json',
+        img_dir=LINE_IMAGES_DIR,
+        json_file=LINE_JSON_FILE,
         transform=transform
     )
     
     color_dataset = STL10Dataset(
-        img_dir='/user_data/georgeli/workspace/STL10-Resnet-18/STL10/test_images',
-        json_file='/user_data/georgeli/workspace/STL10-Resnet-18/STL10/test.json',
+        img_dir=COLOR_IMAGES_DIR,
+        json_file=COLOR_JSON_FILE,
         transform=transform
     )
     
@@ -671,10 +434,7 @@ def main():
                 )
                 
                 cosine_results = cosine_similarity_analysis(line_features, color_features)
-                rsa_results = representational_similarity_analysis(
-                    line_features, color_features, 
-                    verbose=False, layer_name=layer_name, model_name=model_name
-                )
+                rsa_results = representational_similarity_analysis(line_features, color_features)
                 
                 results[model_name][layer_name] = {
                     'cosine_similarity': cosine_results,
@@ -690,15 +450,13 @@ def main():
                 print(f"  Error analyzing layer {layer_name}: {str(e)}")
                 results[model_name][layer_name] = None
     
-    output_dir = '/user_data/georgeli/workspace/STL10-Resnet-18/manifold_alignment/results'
-    
-    save_results(results, output_dir)
+    save_results(results, OUTPUT_DIR)
     
     print("\nCreating visualizations...")
-    create_visualizations(results, output_dir)
+    create_visualizations(results, OUTPUT_DIR)
     
     print("\nAnalysis complete!")
-    print(f"Results saved to: {output_dir}")
+    print(f"Results saved to: {OUTPUT_DIR}")
     
     print("\n" + "="*80)
     print("RESULTS")
