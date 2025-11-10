@@ -1,3 +1,5 @@
+![Line Training](./teaser.png)
+
 # Computational Perception HW5 Code & Results
 
 Code for HW5 of 15-387 for Fall 2025.
@@ -139,6 +141,8 @@ Shape-bias evaluation results are also saved in `model-vs-human/figures/shape-bi
 - **`cue-conflict_shape-bias_boxplot.pdf`**: Boxplot comparing shape bias across models
 
 ## Data Requirements
+
+STL10 and STL10-Line test datasets with labels can be downloaded [here](https://drive.google.com/drive/folders/1DFGSEnb2Pm_LTVrlA-BFEOXvP_sd5UkX?usp=sharing)
 
 Update paths in scripts to point to your STL-10 datasets:
 - Color images: directory with `test.json` and `test_images/`
