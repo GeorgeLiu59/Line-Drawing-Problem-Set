@@ -75,7 +75,7 @@ Seven ResNet-18 models with different training strategies:
 - **Color→Line** (`resnet18_colorline.pth`): Transfer learning from color to line
 - **Interleaved** (`resnet18_interleaved.pth`): Combined training on both modalities
 - **Color Only IN1K** (`resnet18_base.pt`): Trained on base Imagenet 1K dataset
-- **Line→Color IN1K** ('resnet18_linecolor.pt'): Transfer learning from line to color on Imagenet 1K dataset
+- **Line→Color IN1K** (`resnet18_linecolor.pt`): Transfer learning from line to color on Imagenet 1K dataset
 
 ## Scripts
 
