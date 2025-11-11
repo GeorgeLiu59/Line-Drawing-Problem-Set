@@ -68,12 +68,14 @@ CP-PSET/
 
 ## Models
 
-Five ResNet-18 models with different training strategies:
+Seven ResNet-18 models with different training strategies:
 - **Color Only** (`resnet18_color.pth`): Trained on color images only
 - **Line Only** (`resnet18_line.pth`): Trained on line drawings only
 - **Line→Color** (`resnet18_linecolor.pth`): Transfer learning from line to color
 - **Color→Line** (`resnet18_colorline.pth`): Transfer learning from color to line
 - **Interleaved** (`resnet18_interleaved.pth`): Combined training on both modalities
+- **Color Only IN1K** (`resnet18_base.pt`): Trained on base Imagenet 1K dataset
+- **Line→Color IN1K** ('resnet18_linecolor.pt'): Transfer learning from line to color on Imagenet 1K dataset
 
 ## Scripts
 
